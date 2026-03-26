@@ -24,6 +24,7 @@
         "imageUrl": { "type": "string", "format": "uri", "description": "URL of the dish image" },
         "chefId": { "type": "string", "description": "UID of the chef who listed the dish" },
         "chefName": { "type": "string", "description": "Name of the chef" },
+        "isAvailable": { "type": "boolean", "description": "Whether the dish is currently available for order" },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the dish was listed" }
       },
       "required": ["id", "name", "description", "price", "imageUrl", "chefId", "chefName", "createdAt"]
@@ -39,11 +40,26 @@
         "foodId": { "type": "string", "description": "ID of the food item ordered" },
         "foodName": { "type": "string", "description": "Name of the food item" },
         "price": { "type": "number", "description": "Price at the time of order" },
-        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "delivered"], "description": "Current status of the order" },
+        "address": { "type": "string", "description": "Delivery address for the order" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "out_for_delivery", "rejected", "delivered"], "description": "Current status of the order" },
+        "estimatedDeliveryTime": { "type": "string", "description": "Estimated delivery time provided by the chef" },
         "chefId": { "type": "string", "description": "UID of the chef who listed the dish" },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the order was placed" }
       },
-      "required": ["id", "customerId", "customerName", "foodId", "foodName", "price", "status", "chefId", "createdAt"]
+      "required": ["id", "customerId", "customerName", "foodId", "foodName", "price", "address", "status", "chefId", "createdAt"]
+    },
+    "Rating": {
+      "title": "Rating",
+      "description": "A rating given by a user to a food item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the rating" },
+        "dishId": { "type": "string", "description": "ID of the food item being rated" },
+        "userId": { "type": "string", "description": "UID of the user who gave the rating" },
+        "rating": { "type": "number", "description": "Star rating from 1 to 5" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the rating was given" }
+      },
+      "required": ["id", "dishId", "userId", "rating", "createdAt"]
     }
   },
   "firestore": {
@@ -58,6 +74,10 @@
     "/orders/{orderId}": {
       "schema": "Order",
       "description": "Orders placed by customers"
+    },
+    "/ratings/{ratingId}": {
+      "schema": "Rating",
+      "description": "Ratings given by users to food items"
     }
   }
 }

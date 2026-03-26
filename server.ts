@@ -29,6 +29,7 @@ const dishSchema = new mongoose.Schema({
   price: { type: Number, required: true },
   image: String,
   category: String,
+  isAvailable: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -44,12 +45,22 @@ const orderSchema = new mongoose.Schema({
   total: { type: Number, required: true },
   address: { type: String, required: true },
   status: { type: String, default: 'pending' },
+  estimatedDeliveryTime: { type: String },
   createdAt: { type: Date, default: Date.now },
 });
+
+const ratingSchema = new mongoose.Schema({
+  dishId: { type: String, required: true },
+  userId: { type: String, required: true },
+  rating: { type: Number, required: true, min: 1, max: 5 },
+  createdAt: { type: Date, default: Date.now },
+});
+ratingSchema.index({ dishId: 1, userId: 1 }, { unique: true });
 
 const User = mongoose.model('User', userSchema);
 const Dish = mongoose.model('Dish', dishSchema);
 const Order = mongoose.model('Order', orderSchema);
+const Rating = mongoose.model('Rating', ratingSchema);
 
 async function startServer() {
   const app = express();
@@ -95,6 +106,7 @@ async function startServer() {
         price REAL NOT NULL,
         image TEXT,
         category TEXT,
+        isAvailable BOOLEAN DEFAULT 1,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE IF NOT EXISTS orders (
@@ -110,7 +122,16 @@ async function startServer() {
         total REAL NOT NULL,
         address TEXT NOT NULL,
         status TEXT DEFAULT 'pending',
+        estimatedDeliveryTime TEXT,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS ratings (
+        id TEXT PRIMARY KEY,
+        dishId TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        rating INTEGER NOT NULL,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(dishId, userId)
       );
     `);
 
@@ -198,15 +219,54 @@ async function startServer() {
     }
   });
 
+  app.get('/api/users/:uid/ratings', async (req, res) => {
+    try {
+      if (useSqlite) {
+        const ratings = sqliteDb.prepare('SELECT * FROM ratings WHERE userId = ?').all(req.params.uid);
+        res.json(ratings);
+      } else {
+        const ratings = await Rating.find({ userId: req.params.uid });
+        res.json(ratings);
+      }
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   // Dishes Routes
   app.get('/api/dishes', async (req, res) => {
     try {
       if (useSqlite) {
-        const dishes = sqliteDb.prepare('SELECT * FROM dishes').all();
+        const dishes = sqliteDb.prepare(`
+          SELECT d.*, 
+                 COALESCE(AVG(r.rating), 0) as averageRating, 
+                 COUNT(r.rating) as ratingCount 
+          FROM dishes d 
+          LEFT JOIN ratings r ON d.id = r.dishId 
+          GROUP BY d.id
+        `).all();
         res.json(dishes);
       } else {
         const dishes = await Dish.find();
-        res.json(dishes.map(d => ({ ...d.toObject(), id: d._id })));
+        const ratings = await Rating.aggregate([
+          { $group: { _id: '$dishId', averageRating: { $avg: '$rating' }, ratingCount: { $sum: 1 } } }
+        ]);
+        
+        const ratingsMap = ratings.reduce((acc: any, r: any) => {
+          acc[r._id] = { averageRating: r.averageRating, ratingCount: r.ratingCount };
+          return acc;
+        }, {} as any);
+
+        res.json(dishes.map(d => {
+          const dishObj = d.toObject();
+          const dishIdStr = dishObj._id.toString();
+          return { 
+            ...dishObj, 
+            id: dishIdStr,
+            averageRating: ratingsMap[dishIdStr]?.averageRating || 0,
+            ratingCount: ratingsMap[dishIdStr]?.ratingCount || 0
+          };
+        }));
       }
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -224,6 +284,51 @@ async function startServer() {
         const dish = new Dish({ chefId, chefName, name, description, price, image, category });
         await dish.save();
         res.json({ id: dish._id });
+      }
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.patch('/api/dishes/:id', async (req, res) => {
+    const { isAvailable } = req.body;
+    try {
+      if (useSqlite) {
+        sqliteDb.prepare('UPDATE dishes SET isAvailable = ? WHERE id = ?').run(isAvailable ? 1 : 0, req.params.id);
+        res.json({ success: true });
+      } else {
+        await Dish.findByIdAndUpdate(req.params.id, { isAvailable });
+        res.json({ success: true });
+      }
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/dishes/:id/rate', async (req, res) => {
+    const { userId, rating } = req.body;
+    const dishId = req.params.id;
+    
+    if (!userId || !rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Invalid rating data' });
+    }
+
+    try {
+      if (useSqlite) {
+        const id = Math.random().toString(36).substr(2, 9);
+        sqliteDb.prepare(`
+          INSERT INTO ratings (id, dishId, userId, rating) 
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(dishId, userId) DO UPDATE SET rating = excluded.rating
+        `).run(id, dishId, userId, rating);
+        res.json({ success: true });
+      } else {
+        await Rating.findOneAndUpdate(
+          { dishId, userId },
+          { rating },
+          { upsert: true, new: true }
+        );
+        res.json({ success: true });
       }
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -267,13 +372,19 @@ async function startServer() {
   });
 
   app.patch('/api/orders/:id', async (req, res) => {
-    const { status } = req.body;
+    const { status, estimatedDeliveryTime } = req.body;
     try {
       if (useSqlite) {
-        sqliteDb.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
+        if (estimatedDeliveryTime) {
+          sqliteDb.prepare('UPDATE orders SET status = ?, estimatedDeliveryTime = ? WHERE id = ?').run(status, estimatedDeliveryTime, req.params.id);
+        } else {
+          sqliteDb.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
+        }
         res.json({ success: true });
       } else {
-        await Order.findByIdAndUpdate(req.params.id, { status });
+        const updateData: any = { status };
+        if (estimatedDeliveryTime) updateData.estimatedDeliveryTime = estimatedDeliveryTime;
+        await Order.findByIdAndUpdate(req.params.id, updateData);
         res.json({ success: true });
       }
     } catch (err) {

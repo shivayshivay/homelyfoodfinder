@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import { auth, onAuthStateChanged, logout, db, doc, getDoc, FirebaseUser } from './firebase';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { LogOut, PlusCircle, Search, ShoppingBag, User as UserIcon, ChefHat, Utensils } from 'lucide-react';
+import { LogOut, PlusCircle, Search, ShoppingBag, User as UserIcon, ChefHat, Utensils, TrendingUp } from 'lucide-react';
 
 // Components
 import Explore from './components/Explore';
 import AddFood from './components/AddFood';
 import Orders from './components/Orders';
 import Auth from './components/Auth';
+import ChefDashboard from './components/ChefDashboard';
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -65,9 +66,14 @@ export default function App() {
                       <Search className="h-4 w-4" /> Explore
                     </Link>
                     {userProfile.role === 'chef' && (
-                      <Link to="/add-food" className="text-gray-600 hover:text-orange-500 font-medium transition-colors flex items-center gap-2">
-                        <PlusCircle className="h-4 w-4" /> Add Dish
-                      </Link>
+                      <>
+                        <Link to="/dashboard" className="text-gray-600 hover:text-orange-500 font-medium transition-colors flex items-center gap-2">
+                          <TrendingUp className="h-4 w-4" /> Dashboard
+                        </Link>
+                        <Link to="/add-food" className="text-gray-600 hover:text-orange-500 font-medium transition-colors flex items-center gap-2">
+                          <PlusCircle className="h-4 w-4" /> Add Dish
+                        </Link>
+                      </>
                     )}
                     <Link to="/orders" className="text-gray-600 hover:text-orange-500 font-medium transition-colors flex items-center gap-2">
                       <ShoppingBag className="h-4 w-4" /> {userProfile.role === 'chef' ? 'Orders Received' : 'My Orders'}
@@ -96,6 +102,7 @@ export default function App() {
             <Routes>
               <Route path="/auth" element={!user ? <Auth /> : <Navigate to="/" />} />
               <Route path="/" element={user ? (userProfile ? <Explore userProfile={userProfile} /> : <Auth />) : <Navigate to="/auth" />} />
+              <Route path="/dashboard" element={user && userProfile?.role === 'chef' ? <ChefDashboard userProfile={userProfile} /> : <Navigate to="/" />} />
               <Route path="/add-food" element={user && userProfile?.role === 'chef' ? <AddFood userProfile={userProfile} /> : <Navigate to="/" />} />
               <Route path="/orders" element={user && userProfile ? <Orders userProfile={userProfile} /> : <Navigate to="/auth" />} />
             </Routes>

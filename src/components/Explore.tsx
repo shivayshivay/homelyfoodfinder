@@ -12,6 +12,9 @@ export default function Explore({ userProfile }: ExploreProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [orderStatus, setOrderStatus] = useState<{ [key: string]: 'idle' | 'ordering' | 'success' }>({});
+  const [userRatings, setUserRatings] = useState<{ [dishId: string]: number }>({});
+  const [quantities, setQuantities] = useState<{ [dishId: string]: number }>({});
+  const [deliveryAddress, setDeliveryAddress] = useState('');
 
   useEffect(() => {
     const fetchDishes = async () => {
@@ -30,11 +33,71 @@ export default function Explore({ userProfile }: ExploreProps) {
     fetchDishes();
   }, []);
 
+  useEffect(() => {
+    const fetchUserRatings = async () => {
+      if (!userProfile?.uid) return;
+      try {
+        const response = await fetch(`/api/users/${userProfile.uid}/ratings`);
+        if (response.ok) {
+          const data = await response.json();
+          const ratingsMap = data.reduce((acc: any, r: any) => {
+            acc[r.dishId] = r.rating;
+            return acc;
+          }, {});
+          setUserRatings(ratingsMap);
+        }
+      } catch (err) {
+        console.error("Failed to fetch user ratings", err);
+      }
+    };
+    fetchUserRatings();
+  }, [userProfile?.uid]);
+
+  const handleRate = async (dishId: string, rating: number) => {
+    if (!userProfile?.uid) {
+      alert("Please log in to rate dishes.");
+      return;
+    }
+    
+    // Optimistic update
+    setUserRatings(prev => ({ ...prev, [dishId]: rating }));
+    
+    try {
+      const response = await fetch(`/api/dishes/${dishId}/rate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userProfile.uid,
+          rating
+        }),
+      });
+      
+      if (response.ok) {
+        // Refetch dishes to update average rating
+        const dishesResponse = await fetch('/api/dishes');
+        if (dishesResponse.ok) {
+          const data = await dishesResponse.json();
+          setFoodItems(data);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to rate dish", error);
+    }
+  };
+
   const handleOrder = async (food: any) => {
     if (userProfile.role === 'chef') {
       alert("Chefs cannot place orders. Please use a customer account.");
       return;
     }
+
+    if (!deliveryAddress.trim()) {
+      alert("Please enter a delivery address at the top of the page before ordering.");
+      return;
+    }
+
+    const quantity = quantities[food.id] || 1;
+    const total = food.price * quantity;
 
     setOrderStatus(prev => ({ ...prev, [food.id]: 'ordering' }));
     try {
@@ -49,9 +112,9 @@ export default function Explore({ userProfile }: ExploreProps) {
           dishId: food.id,
           dishName: food.name,
           price: food.price,
-          quantity: 1,
-          total: food.price,
-          address: 'Default Address', // In a real app, this would come from a form
+          quantity: quantity,
+          total: total,
+          address: deliveryAddress,
         }),
       });
 
@@ -69,9 +132,18 @@ export default function Explore({ userProfile }: ExploreProps) {
     }
   };
 
+  const handleQuantityChange = (dishId: string, delta: number) => {
+    setQuantities(prev => {
+      const current = prev[dishId] || 1;
+      const next = Math.max(1, current + delta);
+      return { ...prev, [dishId]: next };
+    });
+  };
+
   const categories = ['All', ...Array.from(new Set(foodItems.map(item => item.category).filter(Boolean)))];
 
   const filteredItems = foodItems.filter(item => {
+    if (item.isAvailable === false) return false;
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.chefName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
@@ -100,7 +172,7 @@ export default function Explore({ userProfile }: ExploreProps) {
             Discover the best homemade food from passionate chefs in your neighborhood.
           </p>
           
-          <div className="relative max-w-md">
+          <div className="relative max-w-md mb-4">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5" />
             <input
               type="text"
@@ -110,6 +182,19 @@ export default function Explore({ userProfile }: ExploreProps) {
               className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white text-gray-900 focus:outline-none focus:ring-4 focus:ring-orange-300 transition-all shadow-lg"
             />
           </div>
+          
+          {userProfile.role !== 'chef' && (
+            <div className="relative max-w-md">
+              <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5" />
+              <input
+                type="text"
+                placeholder="Enter your delivery address..."
+                value={deliveryAddress}
+                onChange={(e) => setDeliveryAddress(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white text-gray-900 focus:outline-none focus:ring-4 focus:ring-orange-300 transition-all shadow-lg"
+              />
+            </div>
+          )}
         </div>
         {/* Decorative elements */}
         <div className="absolute top-0 right-0 w-1/2 h-full hidden md:block">
@@ -193,34 +278,68 @@ export default function Explore({ userProfile }: ExploreProps) {
                   </p>
                   
                   <div className="mt-auto pt-6 border-t border-gray-50 flex items-center justify-between">
-                    <div className="flex items-center gap-1 text-yellow-500">
-                      <Star className="h-4 w-4 fill-current" />
-                      <span className="text-sm font-bold text-gray-700">4.9</span>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            onClick={() => handleRate(item.id, star)}
+                            className={`focus:outline-none transition-colors ${
+                              (userRatings[item.id] || 0) >= star ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-400'
+                            }`}
+                          >
+                            <Star className="h-5 w-5 fill-current" />
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-xs font-bold text-gray-500">
+                        {item.averageRating ? item.averageRating.toFixed(1) : 'New'} 
+                        <span className="font-normal"> ({item.ratingCount || 0} reviews)</span>
+                      </span>
                     </div>
                     
-                    <button
-                      onClick={() => handleOrder(item)}
-                      disabled={orderStatus[item.id] === 'ordering' || orderStatus[item.id] === 'success'}
-                      className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all ${
-                        orderStatus[item.id] === 'success'
-                        ? 'bg-green-500 text-white shadow-lg shadow-green-100'
-                        : 'bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-100 hover:-translate-y-1'
-                      }`}
-                    >
-                      {orderStatus[item.id] === 'ordering' ? (
-                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                      ) : orderStatus[item.id] === 'success' ? (
-                        <>
-                          <CheckCircle2 className="h-5 w-5" />
-                          Ordered!
-                        </>
-                      ) : (
-                        <>
-                          <ShoppingCart className="h-5 w-5" />
-                          Order Now
-                        </>
-                      )}
-                    </button>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-3 bg-gray-50 px-3 py-1.5 rounded-xl">
+                        <button 
+                          onClick={() => handleQuantityChange(item.id, -1)}
+                          className="w-6 h-6 flex items-center justify-center rounded-full bg-white text-gray-600 shadow-sm hover:bg-gray-100 font-bold"
+                        >
+                          -
+                        </button>
+                        <span className="font-bold text-gray-900 min-w-[1ch] text-center">
+                          {quantities[item.id] || 1}
+                        </span>
+                        <button 
+                          onClick={() => handleQuantityChange(item.id, 1)}
+                          className="w-6 h-6 flex items-center justify-center rounded-full bg-white text-gray-600 shadow-sm hover:bg-gray-100 font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleOrder(item)}
+                        disabled={orderStatus[item.id] === 'ordering' || orderStatus[item.id] === 'success'}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all text-sm ${
+                          orderStatus[item.id] === 'success'
+                          ? 'bg-green-500 text-white shadow-lg shadow-green-100'
+                          : 'bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-100 hover:-translate-y-0.5'
+                        }`}
+                      >
+                        {orderStatus[item.id] === 'ordering' ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                        ) : orderStatus[item.id] === 'success' ? (
+                          <>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Ordered!
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingCart className="h-4 w-4" />
+                            Order Now
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

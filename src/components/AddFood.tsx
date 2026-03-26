@@ -19,6 +19,7 @@ export default function AddFood({ userProfile }: AddFoodProps) {
     price: '',
     imageUrl: '',
     category: 'Main Course',
+    isAvailable: true,
   });
 
   const categories = ["Main Course", "Breakfast", "Desserts", "Snacks", "Beverages"];
@@ -44,6 +45,7 @@ export default function AddFood({ userProfile }: AddFoodProps) {
           price: parseFloat(formData.price),
           image: formData.imageUrl,
           category: formData.category,
+          isAvailable: formData.isAvailable,
         }),
       });
 
@@ -178,6 +180,22 @@ export default function AddFood({ userProfile }: AddFoodProps) {
                     />
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border-2 border-transparent hover:border-orange-100 transition-colors">
+                <div>
+                  <label className="block text-sm font-bold text-gray-900">Available for Order</label>
+                  <p className="text-xs text-gray-500 mt-1">Customers can see and order this dish immediately.</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    className="sr-only peer" 
+                    checked={formData.isAvailable}
+                    onChange={(e) => setFormData({ ...formData, isAvailable: e.target.checked })}
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                </label>
               </div>
 
               <button
