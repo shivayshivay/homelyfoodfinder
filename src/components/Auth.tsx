@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, db, doc, setDoc, getDoc, onAuthStateChanged, setupRecaptcha, loginWithPhone, loginAnonymously } from '../firebase';
 import { ChefHat, User as UserIcon, Utensils, ArrowRight, Phone, ShieldCheck, AlertCircle } from 'lucide-react';
+import ErrorMessage from './ErrorMessage';
 
 export default function Auth() {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<'chef' | 'customer' | null>(null);
+  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [needsRole, setNeedsRole] = useState(false);
   
@@ -124,6 +126,10 @@ export default function Auth() {
 
   const handleCompleteProfile = async () => {
     if (!user || !role) return;
+    if (!name.trim()) {
+      setError("Please enter your name to continue.");
+      return;
+    }
     setLoading(true);
     try {
       const response = await fetch('/api/users', {
@@ -131,7 +137,7 @@ export default function Auth() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           uid: user.uid,
-          name: user.displayName || (user.isAnonymous ? 'Guest ' + user.uid.slice(-4) : 'User ' + user.phoneNumber?.slice(-4)),
+          name: name.trim(),
           phoneNumber: user.phoneNumber || 'Anonymous',
           role: role,
         }),
@@ -155,8 +161,20 @@ export default function Auth() {
       <div className="flex flex-col items-center justify-center min-h-[80vh] bg-gray-50 p-4">
         <div className="bg-white p-10 rounded-3xl shadow-2xl max-w-lg w-full text-center border border-gray-100">
           <h2 className="text-3xl font-extrabold text-gray-900 mb-2 tracking-tight">Welcome to HomelyFood!</h2>
-          <p className="text-gray-500 mb-10 text-lg">How would you like to use the platform?</p>
+          <p className="text-gray-500 mb-8 text-lg">How would you like to use the platform?</p>
           
+          <ErrorMessage message={error} />
+          <div className="mb-6 mt-4">
+            <input
+              type="text"
+              required
+              placeholder="Enter your full name..."
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-4 rounded-2xl bg-gray-50 border-2 border-transparent focus:border-orange-500 focus:bg-white focus:outline-none transition-all text-gray-900 font-medium text-center"
+            />
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
             <button
               onClick={() => setRole('chef')}
@@ -229,12 +247,9 @@ export default function Auth() {
           <h2 className="text-3xl font-bold text-gray-900 mb-2 text-center">Welcome Back</h2>
           <p className="text-gray-500 mb-10 text-center">Sign in with your phone number to continue</p>
           
-          {error && (
-            <div className="mb-6 bg-red-50 border border-red-100 p-4 rounded-2xl flex items-center gap-3 text-red-600 text-sm font-medium">
-              <AlertCircle className="h-5 w-5" />
-              <span>{error}</span>
-            </div>
-          )}
+          <div className="mb-6">
+            <ErrorMessage message={error} />
+          </div>
 
           {step === 'phone' ? (
             <form onSubmit={handleSendCode} className="space-y-6">

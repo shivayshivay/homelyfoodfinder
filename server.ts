@@ -6,6 +6,9 @@ import Database from 'better-sqlite3';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Server } from 'socket.io';
+import Stripe from 'stripe';
+import http from 'http';
 
 dotenv.config();
 
@@ -57,17 +60,39 @@ const ratingSchema = new mongoose.Schema({
 });
 ratingSchema.index({ dishId: 1, userId: 1 }, { unique: true });
 
+const messageSchema = new mongoose.Schema({
+  senderId: { type: String, required: true },
+  receiverId: { type: String, required: true },
+  content: { type: String, required: true },
+  dishId: { type: String },
+  createdAt: { type: Date, default: Date.now },
+});
+
 const User = mongoose.model('User', userSchema);
 const Dish = mongoose.model('Dish', dishSchema);
 const Order = mongoose.model('Order', orderSchema);
 const Rating = mongoose.model('Rating', ratingSchema);
+const Message = mongoose.model('Message', messageSchema);
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+  const server = http.createServer(app);
+  const io = new Server(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    }
+  });
 
   app.use(cors());
   app.use(express.json());
+
+  // Stripe Setup
+  let stripeClient: Stripe | null = null;
+  if (process.env.STRIPE_SECRET_KEY) {
+    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
+  }
 
   // Database Connection
   const MONGODB_URI = process.env.MONGODB_URI;
@@ -133,6 +158,14 @@ async function startServer() {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(dishId, userId)
       );
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        senderId TEXT NOT NULL,
+        receiverId TEXT NOT NULL,
+        content TEXT NOT NULL,
+        dishId TEXT,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Seed default dishes if empty
@@ -176,6 +209,79 @@ async function startServer() {
   }
 
   // API Routes
+  app.post('/api/create-payment-intent', async (req, res) => {
+    if (!stripeClient) {
+      return res.status(500).json({ error: 'Stripe is not configured' });
+    }
+    try {
+      const { amount } = req.body;
+      const paymentIntent = await stripeClient.paymentIntents.create({
+        amount: Math.round(amount * 100), // amount in cents
+        currency: 'usd',
+      });
+      res.json({ clientSecret: paymentIntent.client_secret });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/messages/:userId/:otherUserId', async (req, res) => {
+    const { userId, otherUserId } = req.params;
+    try {
+      if (useSqlite) {
+        const messages = sqliteDb.prepare(`
+          SELECT * FROM messages 
+          WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
+          ORDER BY createdAt ASC
+        `).all(userId, otherUserId, otherUserId, userId);
+        res.json(messages);
+      } else {
+        const messages = await Message.find({
+          $or: [
+            { senderId: userId, receiverId: otherUserId },
+            { senderId: otherUserId, receiverId: userId }
+          ]
+        }).sort({ createdAt: 1 });
+        res.json(messages.map(m => ({ ...m.toObject(), id: m._id })));
+      }
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Socket.IO
+  io.on('connection', (socket) => {
+    console.log('User connected:', socket.id);
+    
+    socket.on('join', (userId) => {
+      socket.join(userId);
+    });
+
+    socket.on('sendMessage', async (data) => {
+      const { senderId, receiverId, content, dishId } = data;
+      let message;
+      try {
+        if (useSqlite) {
+          const id = Math.random().toString(36).substr(2, 9);
+          sqliteDb.prepare('INSERT INTO messages (id, senderId, receiverId, content, dishId) VALUES (?, ?, ?, ?, ?)').run(id, senderId, receiverId, content, dishId || null);
+          message = { id, senderId, receiverId, content, dishId, createdAt: new Date().toISOString() };
+        } else {
+          const newMsg = new Message({ senderId, receiverId, content, dishId });
+          await newMsg.save();
+          message = { ...newMsg.toObject(), id: newMsg._id };
+        }
+        io.to(receiverId).emit('newMessage', message);
+        io.to(senderId).emit('newMessage', message);
+      } catch (err) {
+        console.error('Error saving message:', err);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('User disconnected:', socket.id);
+    });
+  });
+
   app.get('/api/health', (req, res) => {
     res.json({ 
       status: 'ok', 
@@ -274,14 +380,14 @@ async function startServer() {
   });
 
   app.post('/api/dishes', async (req, res) => {
-    const { chefId, chefName, name, description, price, image, category } = req.body;
+    const { chefId, chefName, name, description, price, image, category, isAvailable } = req.body;
     try {
       if (useSqlite) {
         const id = Math.random().toString(36).substr(2, 9);
-        sqliteDb.prepare('INSERT INTO dishes (id, chefId, chefName, name, description, price, image, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, chefId, chefName, name, description, price, image, category);
+        sqliteDb.prepare('INSERT INTO dishes (id, chefId, chefName, name, description, price, image, category, isAvailable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, chefId, chefName, name, description, price, image, category, isAvailable !== undefined ? (isAvailable ? 1 : 0) : 1);
         res.json({ id });
       } else {
-        const dish = new Dish({ chefId, chefName, name, description, price, image, category });
+        const dish = new Dish({ chefId, chefName, name, description, price, image, category, isAvailable: isAvailable !== undefined ? isAvailable : true });
         await dish.save();
         res.json({ id: dish._id });
       }
@@ -407,7 +513,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

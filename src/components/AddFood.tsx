@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, collection, addDoc, serverTimestamp } from '../firebase';
 import { PlusCircle, Image as ImageIcon, DollarSign, Utensils, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import ErrorMessage from './ErrorMessage';
 
 interface AddFoodProps {
   userProfile: any;
@@ -102,12 +103,9 @@ export default function AddFood({ userProfile }: AddFoodProps) {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-8">
-              {error && (
-                <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex items-center gap-3 text-red-600 text-sm font-medium">
-                  <AlertCircle className="h-5 w-5" />
-                  <span>{error}</span>
-                </div>
-              )}
+              <div className="mb-4">
+                <ErrorMessage message={error} />
+              </div>
 
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase tracking-widest text-gray-400 ml-1">Dish Name</label>

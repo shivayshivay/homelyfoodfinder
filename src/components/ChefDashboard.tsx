@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ShoppingBag, Star, TrendingUp, Clock, CheckCircle2, DollarSign, Truck } from 'lucide-react';
+import { ShoppingBag, Star, TrendingUp, Clock, CheckCircle2, DollarSign, Truck, X, Eye } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
 interface ChefDashboardProps {
@@ -11,6 +11,7 @@ export default function ChefDashboard({ userProfile }: ChefDashboardProps) {
   const [dishes, setDishes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState<'revenue' | 'orders'>('revenue');
+  const [showAllOrders, setShowAllOrders] = useState(false);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -195,16 +196,24 @@ export default function ChefDashboard({ userProfile }: ChefDashboardProps) {
         </div>
 
         {/* Recent Orders */}
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
           <div className="p-6 border-b border-gray-50 flex justify-between items-center">
             <h2 className="text-xl font-bold text-gray-900">Recent Order Activity</h2>
-            {pendingOrders.length > 0 && (
-              <span className="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">
-                {pendingOrders.length} Pending
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {pendingOrders.length > 0 && (
+                <span className="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">
+                  {pendingOrders.length} Pending
+                </span>
+              )}
+              <button 
+                onClick={() => setShowAllOrders(true)}
+                className="text-sm font-bold text-orange-500 hover:text-orange-600 flex items-center gap-1 bg-orange-50 px-3 py-1.5 rounded-xl transition-colors"
+              >
+                <Eye className="h-4 w-4" /> View All
+              </button>
+            </div>
           </div>
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 flex-1 overflow-y-auto">
             {recentOrders.length === 0 ? (
               <div className="p-8 text-center text-gray-500">No recent orders.</div>
             ) : (
@@ -281,6 +290,65 @@ export default function ChefDashboard({ userProfile }: ChefDashboardProps) {
           </div>
         </div>
       </div>
+
+      {/* All Orders Modal */}
+      {showAllOrders && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-8 max-w-3xl w-full shadow-2xl relative max-h-[90vh] flex flex-col">
+            <button 
+              onClick={() => setShowAllOrders(false)}
+              className="absolute top-6 right-6 text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <h3 className="text-2xl font-bold text-gray-900 mb-2">Full Order History</h3>
+            <p className="text-gray-500 mb-6 text-sm">A detailed view of all your orders.</p>
+            
+            <div className="flex-1 overflow-y-auto pr-2 divide-y divide-gray-50">
+              {orders.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">No orders yet.</div>
+              ) : (
+                [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(order => (
+                  <div key={order.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50 transition-colors rounded-xl px-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`p-3 rounded-2xl ${
+                        order.status === 'pending' ? 'bg-yellow-100 text-yellow-600' :
+                        order.status === 'accepted' ? 'bg-blue-100 text-blue-600' :
+                        order.status === 'out_for_delivery' ? 'bg-purple-100 text-purple-600' :
+                        order.status === 'delivered' ? 'bg-green-100 text-green-600' :
+                        'bg-red-100 text-red-600'
+                      }`}>
+                        {order.status === 'pending' ? <Clock className="h-5 w-5" /> :
+                         order.status === 'delivered' ? <CheckCircle2 className="h-5 w-5" /> :
+                         order.status === 'out_for_delivery' ? <Truck className="h-5 w-5" /> :
+                         <ShoppingBag className="h-5 w-5" />}
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-900">{order.quantity}x {order.dishName}</p>
+                        <p className="text-sm text-gray-500">Customer: {order.customerName}</p>
+                        {order.address && <p className="text-xs text-gray-400 mt-1 flex items-center gap-1"><MapPin className="h-3 w-3" /> {order.address}</p>}
+                      </div>
+                    </div>
+                    <div className="text-left sm:text-right">
+                      <p className="font-black text-gray-900">${order.total.toFixed(2)}</p>
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-400">
+                        {new Date(order.createdAt).toLocaleString()}
+                      </p>
+                      <span className={`inline-block mt-2 px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${
+                        order.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                        order.status === 'delivered' ? 'bg-green-100 text-green-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {order.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
