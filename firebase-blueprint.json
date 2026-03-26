@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "User's full name" },
+        "phoneNumber": { "type": "string", "description": "User's phone number" },
+        "role": { "type": "string", "enum": ["chef", "customer"], "description": "User's role in the platform" }
+      },
+      "required": ["uid", "name", "phoneNumber", "role"]
+    },
+    "FoodItem": {
+      "title": "FoodItem",
+      "description": "A homemade food dish listed by a chef",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the food item" },
+        "name": { "type": "string", "description": "Name of the dish" },
+        "description": { "type": "string", "description": "Description of the dish" },
+        "price": { "type": "number", "description": "Price of the dish" },
+        "imageUrl": { "type": "string", "format": "uri", "description": "URL of the dish image" },
+        "chefId": { "type": "string", "description": "UID of the chef who listed the dish" },
+        "chefName": { "type": "string", "description": "Name of the chef" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the dish was listed" }
+      },
+      "required": ["id", "name", "description", "price", "imageUrl", "chefId", "chefName", "createdAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "An order placed for a food item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the order" },
+        "customerId": { "type": "string", "description": "UID of the customer who placed the order" },
+        "customerName": { "type": "string", "description": "Name of the customer" },
+        "foodId": { "type": "string", "description": "ID of the food item ordered" },
+        "foodName": { "type": "string", "description": "Name of the food item" },
+        "price": { "type": "number", "description": "Price at the time of order" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected", "delivered"], "description": "Current status of the order" },
+        "chefId": { "type": "string", "description": "UID of the chef who listed the dish" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the order was placed" }
+      },
+      "required": ["id", "customerId", "customerName", "foodId", "foodName", "price", "status", "chefId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/foodItems/{foodId}": {
+      "schema": "FoodItem",
+      "description": "Food items listed by chefs"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Orders placed by customers"
+    }
+  }
+}

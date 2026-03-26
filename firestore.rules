@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields:
+    //   - uid: string (required) - Firebase Auth UID
+    //   - name: string (required) - User's full name
+    //   - phoneNumber: string (required) - User's phone number
+    //   - role: string (required, enum: ['chef', 'customer']) - User's role
+    //
+    // Collection: foodItems
+    // Fields:
+    //   - id: string (required) - Unique ID
+    //   - name: string (required) - Dish name
+    //   - description: string (required) - Dish description
+    //   - price: number (required) - Price
+    //   - imageUrl: string (required) - Image URL
+    //   - chefId: string (required) - UID of the chef
+    //   - chefName: string (required) - Name of the chef
+    //   - createdAt: timestamp (required) - When listed
+    //
+    // Collection: orders
+    // Fields:
+    //   - id: string (required) - Unique ID
+    //   - customerId: string (required) - UID of the customer
+    //   - customerName: string (required) - Name of the customer
+    //   - foodId: string (required) - ID of the food item
+    //   - foodName: string (required) - Name of the food item
+    //   - price: number (required) - Price at order time
+    //   - status: string (required, enum: ['pending', 'accepted', 'rejected', 'delivered']) - Order status
+    //   - chefId: string (required) - UID of the chef
+    //   - createdAt: timestamp (required) - When placed
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "shivay8136@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'name', 'phoneNumber', 'role']) &&
+             hasOnlyAllowedFields(['uid', 'name', 'phoneNumber', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.phoneNumber is string && data.phoneNumber.size() > 0 &&
+             data.role in ['chef', 'customer', 'admin'];
+    }
+
+    function isValidFoodItem(data) {
+      return hasRequiredFields(['id', 'name', 'description', 'price', 'imageUrl', 'chefId', 'chefName', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'name', 'description', 'price', 'imageUrl', 'chefId', 'chefName', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 1000 &&
+             data.price is number && data.price > 0 &&
+             isValidUrl(data.imageUrl) &&
+             data.chefId is string && data.chefId == request.auth.uid &&
+             data.chefName is string && data.chefName.size() > 0;
+    }
+
+    function isValidOrder(data) {
+      return hasRequiredFields(['id', 'customerId', 'customerName', 'foodId', 'foodName', 'price', 'status', 'chefId', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'foodId', 'foodName', 'price', 'status', 'chefId', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.customerId is string && data.customerId == request.auth.uid &&
+             data.customerName is string && data.customerName.size() > 0 &&
+             data.foodId is string && data.foodId.size() > 0 &&
+             data.foodName is string && data.foodName.size() > 0 &&
+             data.price is number && data.price > 0 &&
+             data.status in ['pending', 'accepted', 'rejected', 'delivered'] &&
+             data.chefId is string && data.chefId.size() > 0;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role != 'admin';
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
+    }
+
+    match /foodItems/{foodId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidFoodItem(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(resource.data.chefId) || isAdmin()) && isValidFoodItem(request.resource.data);
+      allow delete: if isAuthenticated() && (isOwner(resource.data.chefId) || isAdmin());
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.customerId) || isOwner(resource.data.chefId) || isAdmin());
+      allow create: if isAuthenticated() && isValidOrder(request.resource.data) && request.resource.data.status == 'pending';
+      allow update: if isAuthenticated() && (isOwner(resource.data.chefId) || isAdmin()) && 
+                    hasOnlyAllowedFields(['id', 'customerId', 'customerName', 'foodId', 'foodName', 'price', 'status', 'chefId', 'createdAt']) &&
+                    request.resource.data.status in ['accepted', 'rejected', 'delivered'] &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
